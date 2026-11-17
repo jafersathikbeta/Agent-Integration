@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent Integration Monitor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Sora', 'sans-serif'],
+            mono: ['IBM Plex Mono', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            ink: {
+              950: '#07090d',
+              900: '#0c1017',
+              800: '#121821',
+              700: '#1a2330',
+              600: '#243044',
+            },
+            signal: {
+              cyan: '#3dd6c6',
+              blue: '#4f8cff',
+              green: '#3ecf8e',
+              red: '#ff5c7a',
+              amber: '#f0b429',
+              mute: '#8b9bb4',
+            },
+          },
+          boxShadow: {
+            panel: '0 0 0 1px rgba(61, 214, 198, 0.08), 0 24px 60px rgba(0,0,0,0.45)',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    :root {
+      --bg-0: #07090d;
+      --bg-1: #0c1017;
+      --line: rgba(139, 155, 180, 0.18);
+      --cyan: #3dd6c6;
+      --blue: #4f8cff;
+      --green: #3ecf8e;
+      --red: #ff5c7a;
+    }
+
+    body {
+      font-family: 'Sora', sans-serif;
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(61, 214, 198, 0.08), transparent 55%),
+        radial-gradient(900px 500px at 90% 0%, rgba(79, 140, 255, 0.07), transparent 50%),
+        linear-gradient(180deg, #07090d 0%, #0a0e14 40%, #07090d 100%);
+      min-height: 100vh;
+      color: #e8eef7;
+    }
+
+    .grid-bg {
+      background-image:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse at center, black 20%, transparent 75%);
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(18, 24, 33, 0.92), rgba(12, 16, 23, 0.96));
+      border: 1px solid rgba(139, 155, 180, 0.16);
+      box-shadow: 0 0 0 1px rgba(61, 214, 198, 0.05), 0 20px 50px rgba(0, 0, 0, 0.4);
+    }
+
+    .field {
+      background: #0a0f16;
+      border: 1px solid rgba(139, 155, 180, 0.22);
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+    .field:focus {
+      outline: none;
+      border-color: rgba(61, 214, 198, 0.55);
+      box-shadow: 0 0 0 3px rgba(61, 214, 198, 0.12);
+    }
+
+    .btn {
+      transition: transform 120ms ease, background 160ms ease, border-color 160ms ease, opacity 160ms ease;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+    .pipeline {
+      position: relative;
+    }
+
+    .flow-line {
+      height: 2px;
+      background: linear-gradient(90deg, rgba(139,155,180,0.15), rgba(61,214,198,0.35), rgba(139,155,180,0.15));
+      position: relative;
+      overflow: hidden;
+    }
+    .flow-line::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(61,214,198,0.9), transparent);
+      transform: translateX(-100%);
+      opacity: 0;
+    }
+    .flow-line.active::after {
+      opacity: 1;
+      animation: pulse-flow 1.1s ease-in-out infinite;
+    }
+    .flow-line.blocked {
+      background: linear-gradient(90deg, rgba(139,155,180,0.1), rgba(255,92,122,0.55), rgba(139,155,180,0.1));
+    }
+
+    @keyframes pulse-flow {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+
+    .node {
+      position: relative;
+      min-width: 150px;
+      background: linear-gradient(160deg, #121821, #0d131b);
+      border: 1px solid rgba(139, 155, 180, 0.22);
+      transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    }
+    .node::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .node .port {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #243044;
+      border: 2px solid #8b9bb4;
+    }
+    .node.active {
+      border-color: rgba(61, 214, 198, 0.65);
+      box-shadow: 0 0 0 1px rgba(61, 214, 198, 0.2), 0 12px 30px rgba(61, 214, 198, 0.08);
+      transform: translateY(-2px);
+    }
+    .node.checking {
+      border-color: rgba(240, 180, 41, 0.7);
+      animation: node-pulse 0.7s ease-in-out infinite;
+    }
+    .node.allowed {
+      border-color: rgba(62, 207, 142, 0.8);
+      box-shadow: 0 0 0 1px rgba(62, 207, 142, 0.25), 0 12px 28px rgba(62, 207, 142, 0.12);
+    }
+    .node.blocked {
+      border-color: rgba(255, 92, 122, 0.85);
+      box-shadow: 0 0 0 1px rgba(255, 92, 122, 0.3), 0 12px 28px rgba(255, 92, 122, 0.14);
+      animation: flash-red 0.45s ease-in-out 3;
+    }
+    .node.chat {
+      border-color: rgba(79, 140, 255, 0.85);
+      box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.28), 0 12px 28px rgba(79, 140, 255, 0.12);
+      animation: flash-blue 0.5s ease-in-out 2;
+    }
+    .node.output-ready {
+      border-color: rgba(61, 214, 198, 0.85);
+      box-shadow: 0 0 0 1px rgba(61, 214, 198, 0.28), 0 12px 28px rgba(61, 214, 198, 0.12);
+    }
+
+    @keyframes node-pulse {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+    @keyframes flash-red {
+      0%, 100% { background: linear-gradient(160deg, #121821, #0d131b); }
+      50% { background: linear-gradient(160deg, #2a1218, #1a0c10); }
+    }
+    @keyframes flash-blue {
+      0%, 100% { background: linear-gradient(160deg, #121821, #0d131b); }
+      50% { background: linear-gradient(160deg, #121a2a, #0c1220); }
+    }
+
+    .terminal {
+      background: #05070b;
+      border: 1px solid rgba(139, 155, 180, 0.18);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .terminal .line-ok { color: #3ecf8e; }
+    .terminal .line-warn { color: #f0b429; }
+    .terminal .line-err { color: #ff5c7a; }
+    .terminal .line-info { color: #8b9bb4; }
+    .terminal .line-cyan { color: #3dd6c6; }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #3ecf8e;
+      box-shadow: 0 0 0 3px rgba(62, 207, 142, 0.15);
+      animation: live 1.8s ease-in-out infinite;
+    }
+    @keyframes live {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+
+    .connector {
+      flex: 1;
+      min-width: 36px;
+      max-width: 80px;
+      height: 2px;
+      align-self: center;
+      position: relative;
+      background: rgba(139, 155, 180, 0.25);
+      overflow: hidden;
+    }
+    .connector::after {
+      content: '';
+      position: absolute;
+      top: -3px;
+      right: -1px;
+      border: 4px solid transparent;
+      border-left-color: rgba(139, 155, 180, 0.45);
+    }
+    .connector.run::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+      animation: pulse-flow 0.9s linear infinite;
+    }
+    .connector.pass { background: rgba(62, 207, 142, 0.55); }
+    .connector.pass::after { border-left-color: rgba(62, 207, 142, 0.85); }
+    .connector.fail { background: rgba(255, 92, 122, 0.55); }
+    .connector.fail::after { border-left-color: rgba(255, 92, 122, 0.85); }
+    .connector.blue { background: rgba(79, 140, 255, 0.55); }
+    .connector.blue::after { border-left-color: rgba(79, 140, 255, 0.85); }
+  </style>
+</head>
+<body class="antialiased">
+  <div class="fixed inset-0 grid-bg pointer-events-none opacity-40"></div>
+
+  <div class="relative z-10 mx-auto max-w-6xl px-5 py-6 md:py-8 flex flex-col gap-5 min-h-screen">
+    <!-- Brand / header -->
+    <header class="flex items-end justify-between gap-4">
+      <div>
+        <p class="font-mono text-[11px] tracking-[0.22em] uppercase text-signal-mute mb-2">Middleware Orchestration</p>
+        <h1 class="font-display text-2xl md:text-3xl font-semibold tracking-tight text-white">Agent Integration</h1>
+        <p class="mt-1 text-sm text-signal-mute max-w-xl">Monitor and control the Sentinel-protected path from intent to final output.</p>
+      </div>
+      <div class="hidden sm:flex items-center gap-2 panel rounded-lg px-3 py-2">
+        <span class="status-dot"></span>
+        <span class="font-mono text-xs text-signal-mute">MONITOR ONLINE</span>
+      </div>
+    </header>
+
+    <!-- Settings -->
+    <section class="panel rounded-xl p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-display text-sm font-semibold tracking-wide text-white uppercase">Settings</h2>
+        <span id="settingsStatus" class="font-mono text-xs text-signal-mute"></span>
+      </div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <label class="block">
+          <span class="font-mono text-[11px] uppercase tracking-wider text-signal-mute">Sentinel API URL</span>
+          <input id="sentinelUrl" type="url" class="field mt-2 w-full rounded-md px-3 py-2.5 font-mono text-sm text-white" value="http://127.0.0.1:8000" />
+        </label>
+        <label class="block">
+          <span class="font-mono text-[11px] uppercase tracking-wider text-signal-mute">Target Chatbot API URL</span>
+          <input id="chatbotUrl" type="url" class="field mt-2 w-full rounded-md px-3 py-2.5 font-mono text-sm text-white" value="http://127.0.0.1:8001" />
+        </label>
+      </div>
+      <div class="mt-4 flex justify-end">
+        <button id="saveSettingsBtn" class="btn rounded-md bg-signal-cyan/90 hover:bg-signal-cyan text-ink-950 font-semibold text-sm px-4 py-2.5">
+          Save Settings
+        </button>
+      </div>
+    </section>
+
+    <!-- Visual Pipeline -->
+    <section class="panel rounded-xl p-5 md:p-7 overflow-x-auto">
+      <div class="flex items-center justify-between mb-6">
+        <h2 class="font-display text-sm font-semibold tracking-wide text-white uppercase">Visual Pipeline</h2>
+        <span id="pipelineLabel" class="font-mono text-xs text-signal-mute">IDLE</span>
+      </div>
+
+      <div class="pipeline flex items-stretch justify-between gap-2 min-w-[720px]">
+        <div id="node1" class="node rounded-lg px-4 py-4 flex-1">
+          <div class="flex items-center justify-between mb-3">
+            <span class="font-mono text-[10px] tracking-widest text-signal-mute uppercase">N01</span>
+            <span class="port"></span>
+          </div>
+          <p class="font-display text-sm font-semibold text-white">User Intent</p>
+          <p class="mt-1 text-xs text-signal-mute">Inbound agent request</p>
+        </div>
+
+        <div id="edge12" class="connector"></div>
+
+        <div id="node2" class="node rounded-lg px-4 py-4 flex-1">
+          <div class="flex items-center justify-between mb-3">
+            <span class="font-mono text-[10px] tracking-widest text-signal-mute uppercase">N02</span>
+            <span class="port"></span>
+          </div>
+          <p class="font-display text-sm font-semibold text-white">Sentinel Firewall</p>
+          <p class="mt-1 text-xs text-signal-mute">Policy validation gate</p>
+        </div>
+
+        <div id="edge23" class="connector"></div>
+
+        <div id="node3" class="node rounded-lg px-4 py-4 flex-1">
+          <div class="flex items-center justify-between mb-3">
+            <span class="font-mono text-[10px] tracking-widest text-signal-mute uppercase">N03</span>
+            <span class="port"></span>
+          </div>
+          <p class="font-display text-sm font-semibold text-white">Target Chatbot</p>
+          <p class="mt-1 text-xs text-signal-mute">Downstream model API</p>
+        </div>
+
+        <div id="edge34" class="connector"></div>
+
+        <div id="node4" class="node rounded-lg px-4 py-4 flex-1">
+          <div class="flex items-center justify-between mb-3">
+            <span class="font-mono text-[10px] tracking-widest text-signal-mute uppercase">N04</span>
+            <span class="port"></span>
+          </div>
+          <p class="font-display text-sm font-semibold text-white">Final Output</p>
+          <p class="mt-1 text-xs text-signal-mute">Observed response</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Controls -->
+    <section class="panel rounded-xl p-5">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="font-display text-sm font-semibold tracking-wide text-white uppercase">Control Panel</h2>
+          <p class="mt-1 text-xs text-signal-mute">Run live simulations against configured middleware endpoints. No chat input — monitor only.</p>
+        </div>
+        <div class="flex flex-wrap gap-3">
+          <button id="safeBtn" class="btn rounded-md border border-signal-green/40 bg-signal-green/10 hover:bg-signal-green/20 text-signal-green font-semibold text-sm px-4 py-2.5">
+            Run Safe Simulation
+          </button>
+          <button id="maliciousBtn" class="btn rounded-md border border-signal-red/40 bg-signal-red/10 hover:bg-signal-red/20 text-signal-red font-semibold text-sm px-4 py-2.5">
+            Run Malicious Simulation
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Trace / threat intel terminal -->
+    <section class="panel rounded-xl p-5 flex-1">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-display text-sm font-semibold tracking-wide text-white uppercase">Trace Console</h2>
+        <button id="clearTraceBtn" class="btn font-mono text-[11px] text-signal-mute hover:text-white">CLEAR</button>
+      </div>
+      <div id="trace" class="terminal rounded-lg p-4 h-56 overflow-y-auto text-xs leading-6">
+        <div class="line-info">$ agent-integration ready — awaiting simulation</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const els = {
+      sentinelUrl: document.getElementById('sentinelUrl'),
+      chatbotUrl: document.getElementById('chatbotUrl'),
+      saveSettingsBtn: document.getElementById('saveSettingsBtn'),
+      settingsStatus: document.getElementById('settingsStatus'),
+      safeBtn: document.getElementById('safeBtn'),
+      maliciousBtn: document.getElementById('maliciousBtn'),
+      clearTraceBtn: document.getElementById('clearTraceBtn'),
+      trace: document.getElementById('trace'),
+      pipelineLabel: document.getElementById('pipelineLabel'),
+      nodes: [
+        document.getElementById('node1'),
+        document.getElementById('node2'),
+        document.getElementById('node3'),
+        document.getElementById('node4'),
+      ],
+      edges: [
+        document.getElementById('edge12'),
+        document.getElementById('edge23'),
+        document.getElementById('edge34'),
+      ],
+    };
+
+    function sleep(ms) {
+      return new Promise((r) => setTimeout(r, ms));
+    }
+
+    function appendTrace(text, cls = 'line-info') {
+      const row = document.createElement('div');
+      row.className = cls;
+      row.textContent = text;
+      els.trace.appendChild(row);
+      els.trace.scrollTop = els.trace.scrollHeight;
+    }
+
+    function clearTrace() {
+      els.trace.innerHTML = '';
+      appendTrace('$ agent-integration ready — awaiting simulation', 'line-info');
+    }
+
+    function resetPipeline() {
+      els.nodes.forEach((n) => {
+        n.classList.remove('active', 'checking', 'allowed', 'blocked', 'chat', 'output-ready');
+      });
+      els.edges.forEach((e) => {
+        e.classList.remove('run', 'pass', 'fail', 'blue');
+      });
+      els.pipelineLabel.textContent = 'IDLE';
+      els.pipelineLabel.className = 'font-mono text-xs text-signal-mute';
+    }
+
+    function setBusy(busy) {
+      els.safeBtn.disabled = busy;
+      els.maliciousBtn.disabled = busy;
+      els.saveSettingsBtn.disabled = busy;
+    }
+
+    async function loadSettings() {
+      try {
+        const res = await fetch('/api/v1/settings');
+        if (!res.ok) throw new Error('Failed to load settings');
+        const data = await res.json();
+        els.sentinelUrl.value = data.sentinel_api_url || 'http://127.0.0.1:8000';
+        els.chatbotUrl.value = data.target_chatbot_api_url || 'http://127.0.0.1:8001';
+      } catch (err) {
+        appendTrace(`settings load error: ${err.message}`, 'line-warn');
+      }
+    }
+
+    async function saveSettings() {
+      setBusy(true);
+      els.settingsStatus.textContent = 'Saving…';
+      try {
+        const res = await fetch('/api/v1/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sentinel_api_url: els.sentinelUrl.value.trim(),
+            target_chatbot_api_url: els.chatbotUrl.value.trim(),
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        els.settingsStatus.textContent = 'Saved';
+        appendTrace('settings persisted to AppData', 'line-ok');
+        setTimeout(() => { els.settingsStatus.textContent = ''; }, 2000);
+      } catch (err) {
+        els.settingsStatus.textContent = 'Save failed';
+        appendTrace(`settings save error: ${err.message}`, 'line-err');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function animateSafe(result) {
+      els.pipelineLabel.textContent = 'RUNNING · SAFE';
+      els.pipelineLabel.className = 'font-mono text-xs text-signal-cyan';
+
+      els.nodes[0].classList.add('active');
+      els.edges[0].classList.add('run');
+      appendTrace('> User Intent emitted', 'line-cyan');
+      await sleep(450);
+
+      els.nodes[1].classList.add('checking');
+      appendTrace('> Sentinel Firewall checking…', 'line-warn');
+      await sleep(700);
+
+      els.nodes[1].classList.remove('checking');
+      if (result.status !== 'ALLOWED') {
+        els.nodes[1].classList.add('blocked');
+        els.edges[0].classList.remove('run');
+        els.edges[0].classList.add('fail');
+        els.pipelineLabel.textContent = 'HALTED';
+        els.pipelineLabel.className = 'font-mono text-xs text-signal-red';
+        return;
+      }
+
+      els.nodes[1].classList.add('allowed');
+      els.edges[0].classList.remove('run');
+      els.edges[0].classList.add('pass');
+      appendTrace('> Sentinel ALLOWED', 'line-ok');
+      await sleep(400);
+
+      els.edges[1].classList.add('run');
+      els.nodes[2].classList.add('chat');
+      appendTrace('> Forwarded to Target Chatbot', 'line-cyan');
+      await sleep(650);
+
+      els.edges[1].classList.remove('run');
+      els.edges[1].classList.add('blue');
+      els.edges[2].classList.add('run');
+      await sleep(350);
+
+      els.nodes[3].classList.add('output-ready');
+      els.edges[2].classList.remove('run');
+      els.edges[2].classList.add('pass');
+      els.pipelineLabel.textContent = 'COMPLETE';
+      els.pipelineLabel.className = 'font-mono text-xs text-signal-green';
+      appendTrace('> Final Output ready', 'line-ok');
+    }
+
+    async function animateMalicious(result) {
+      els.pipelineLabel.textContent = 'RUNNING · MALICIOUS';
+      els.pipelineLabel.className = 'font-mono text-xs text-signal-amber';
+
+      els.nodes[0].classList.add('active');
+      els.edges[0].classList.add('run');
+      appendTrace('> Malicious User Intent emitted (rm -rf /)', 'line-err');
+      await sleep(450);
+
+      els.nodes[1].classList.add('checking');
+      appendTrace('> Sentinel Firewall checking…', 'line-warn');
+      await sleep(700);
+
+      els.nodes[1].classList.remove('checking');
+      els.nodes[1].classList.add('blocked');
+      els.edges[0].classList.remove('run');
+      els.edges[0].classList.add('fail');
+      els.pipelineLabel.textContent = 'BLOCKED';
+      els.pipelineLabel.className = 'font-mono text-xs text-signal-red';
+      appendTrace('> Sentinel BLOCKED — pipeline stopped', 'line-err');
+      appendTrace('> Target Chatbot was never contacted', 'line-warn');
+    }
+
+    function dumpResult(result) {
+      (result.steps || []).forEach((s) => appendTrace(`  · ${s}`, 'line-info'));
+      if (result.threat_intel) {
+        appendTrace('--- threat intel ---', 'line-err');
+        appendTrace(JSON.stringify(result.threat_intel, null, 2), 'line-err');
+      }
+      if (result.chatbot_response) {
+        appendTrace('--- chatbot response ---', 'line-cyan');
+        appendTrace(
+          typeof result.chatbot_response === 'string'
+            ? result.chatbot_response
+            : JSON.stringify(result.chatbot_response, null, 2),
+          'line-info'
+        );
+      }
+      if (result.error) {
+        appendTrace(`error: ${result.error}`, 'line-err');
+      }
+    }
+
+    async function runSimulation(type) {
+      resetPipeline();
+      setBusy(true);
+      appendTrace(`$ simulate --type ${type}`, 'line-cyan');
+
+      try {
+        // Persist current URL fields before simulating so backend uses latest values
+        await fetch('/api/v1/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sentinel_api_url: els.sentinelUrl.value.trim(),
+            target_chatbot_api_url: els.chatbotUrl.value.trim(),
+          }),
+        });
+
+        const res = await fetch('/api/v1/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ simulation_type: type }),
+        });
+        const result = await res.json();
+
+        if (type === 'malicious') {
+          await animateMalicious(result);
+        } else {
+          await animateSafe(result);
+        }
+        dumpResult(result);
+      } catch (err) {
+        els.pipelineLabel.textContent = 'ERROR';
+        els.pipelineLabel.className = 'font-mono text-xs text-signal-red';
+        appendTrace(`simulation failed: ${err.message}`, 'line-err');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    els.saveSettingsBtn.addEventListener('click', saveSettings);
+    els.safeBtn.addEventListener('click', () => runSimulation('safe'));
+    els.maliciousBtn.addEventListener('click', () => runSimulation('malicious'));
+    els.clearTraceBtn.addEventListener('click', () => {
+      clearTrace();
+      resetPipeline();
+    });
+
+    loadSettings();
+  </script>
+</body>
+</html>
